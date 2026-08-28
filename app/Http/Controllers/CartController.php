@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\AddToCartRequest;
+use App\Http\Requests\UpdateCartItemRequest;
+use App\Http\Resources\CartResource;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Product;
@@ -13,38 +16,21 @@ class CartController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-
-        // sepet yoksa boş olarak döndür
-        $cart = Cart::with('items.product')->where('user_id', $user->id)->first();
+        $cart = Cart::with('items.product.category')->where('user_id', $user->id)->first();
 
         if (!$cart) {
             return response()->json([
-                'cart'  => null,
-                'items' => [],
+                'data'  => null,
                 'total' => 0,
             ]);
         }
 
-        // sepet toplamını hesapla
-        $total = 0;
-        foreach ($cart->items as $item) {
-            $total += $item->product->price * $item->quantity;
-        }
-
-        return response()->json([
-            'cart'  => $cart,
-            'total' => $total,
-        ]);
+        return new CartResource($cart);
     }
 
     // sepete ürün ekle
-    public function addItem(Request $request)
+    public function addItem(AddToCartRequest $request)
     {
-        $request->validate([
-            'product_id' => 'required|exists:products,id',
-            'quantity'   => 'required|integer|min:1',
-        ]);
-
         $user    = $request->user();
         $product = Product::find($request->product_id);
 
@@ -72,7 +58,6 @@ class CartController extends Controller
             // varsa miktarı artır
             $newQuantity = $cartItem->quantity + $request->quantity;
 
-            // toplam miktar stoktan fazla olmasın
             if ($newQuantity > $product->stock) {
                 return response()->json([
                     'message' => 'Toplam miktar stoktan fazla olamaz. Mevcut stok: ' . $product->stock,
@@ -81,7 +66,6 @@ class CartController extends Controller
 
             $cartItem->update(['quantity' => $newQuantity]);
         } else {
-            // yoksa yeni kayıt oluştur
             $cartItem = CartItem::create([
                 'cart_id'    => $cart->id,
                 'product_id' => $product->id,
@@ -90,18 +74,13 @@ class CartController extends Controller
         }
 
         return response()->json([
-            'message'   => 'Ürün sepete eklendi.',
-            'cart_item' => $cartItem->load('product'),
+            'message' => 'Ürün sepete eklendi.',
         ], 201);
     }
 
     // sepetteki ürün miktarını güncelle
-    public function updateItem(Request $request, $itemId)
+    public function updateItem(UpdateCartItemRequest $request, $itemId)
     {
-        $request->validate([
-            'quantity' => 'required|integer|min:1',
-        ]);
-
         $user     = $request->user();
         $cart     = Cart::where('user_id', $user->id)->first();
 
@@ -126,10 +105,7 @@ class CartController extends Controller
 
         $cartItem->update(['quantity' => $request->quantity]);
 
-        return response()->json([
-            'message'   => 'Miktar güncellendi.',
-            'cart_item' => $cartItem->load('product'),
-        ]);
+        return response()->json(['message' => 'Miktar güncellendi.']);
     }
 
     // sepetten ürün sil
@@ -165,7 +141,6 @@ class CartController extends Controller
             return response()->json(['message' => 'Sepetiniz zaten boş.'], 404);
         }
 
-        // tüm kalemleri sil
         $cart->items()->delete();
 
         return response()->json(['message' => 'Sepet temizlendi.']);

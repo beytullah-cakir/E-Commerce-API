@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreOrderRequest;
+use App\Http\Resources\OrderResource;
 use App\Models\Cart;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -10,29 +12,29 @@ use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
-    // kullanıcının siparişlerini listele
+    // siparişleri listele
     public function index(Request $request)
     {
         $user = $request->user();
 
-        // admin tüm siparişleri görür, normal kullanıcı sadece kendinkini
+        // admin tüm siparişleri görür, kullanıcı sadece kendinkini
         if ($user->isAdmin()) {
-            $orders = Order::with('user', 'items.product')->latest()->get();
+            $orders = Order::with('items.product')->latest()->paginate(10);
         } else {
             $orders = Order::with('items.product')
                 ->where('user_id', $user->id)
                 ->latest()
-                ->get();
+                ->paginate(10);
         }
 
-        return response()->json($orders);
+        return OrderResource::collection($orders);
     }
 
     // tek sipariş detayı
     public function show(Request $request, $id)
     {
         $user  = $request->user();
-        $order = Order::with('items.product', 'user')->find($id);
+        $order = Order::with('items.product')->find($id);
 
         if (!$order) {
             return response()->json(['message' => 'Sipariş bulunamadı.'], 404);
@@ -43,16 +45,12 @@ class OrderController extends Controller
             return response()->json(['message' => 'Bu siparişi görme yetkiniz yok.'], 403);
         }
 
-        return response()->json($order);
+        return new OrderResource($order);
     }
 
     // sepetten sipariş oluştur
-    public function store(Request $request)
+    public function store(StoreOrderRequest $request)
     {
-        $request->validate([
-            'notes' => 'nullable|string|max:500',
-        ]);
-
         $user = $request->user();
         $cart = Cart::with('items.product')->where('user_id', $user->id)->first();
 
@@ -79,13 +77,11 @@ class OrderController extends Controller
         // database transaction - bir şey hata verirse her şey geri alınır
         $order = DB::transaction(function () use ($cart, $user, $request) {
 
-            // toplam fiyatı hesapla
             $totalPrice = 0;
             foreach ($cart->items as $item) {
                 $totalPrice += $item->product->price * $item->quantity;
             }
 
-            // siparişi oluştur
             $order = Order::create([
                 'user_id'     => $user->id,
                 'status'      => 'pending',
@@ -93,13 +89,11 @@ class OrderController extends Controller
                 'notes'       => $request->notes,
             ]);
 
-            // her sepet kalemi için order item oluştur
             foreach ($cart->items as $item) {
                 OrderItem::create([
                     'order_id'   => $order->id,
                     'product_id' => $item->product_id,
                     'quantity'   => $item->quantity,
-                    // sipariş anındaki fiyatı kaydediyoruz
                     'price'      => $item->product->price,
                 ]);
 
@@ -115,7 +109,7 @@ class OrderController extends Controller
 
         return response()->json([
             'message' => 'Sipariş oluşturuldu!',
-            'order'   => $order->load('items.product'),
+            'order'   => new OrderResource($order->load('items.product')),
         ], 201);
     }
 
@@ -126,13 +120,13 @@ class OrderController extends Controller
             'status' => 'required|in:pending,processing,shipped,delivered,cancelled',
         ]);
 
-        $order = Order::find($id);
+        $order = Order::with('items.product')->find($id);
 
         if (!$order) {
             return response()->json(['message' => 'Sipariş bulunamadı.'], 404);
         }
 
-        // iptal edilen sipariş tekrar stoka eklensin
+        // iptal edilince stok geri ekle
         if ($request->status === 'cancelled' && $order->status !== 'cancelled') {
             foreach ($order->items as $item) {
                 $item->product->increment('stock', $item->quantity);
@@ -143,7 +137,7 @@ class OrderController extends Controller
 
         return response()->json([
             'message' => 'Sipariş durumu güncellendi.',
-            'order'   => $order,
+            'order'   => new OrderResource($order),
         ]);
     }
 }

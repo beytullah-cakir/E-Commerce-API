@@ -2,19 +2,44 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreProductRequest;
+use App\Http\Requests\UpdateProductRequest;
+use App\Http\Resources\ProductResource;
 use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class ProductController extends Controller
 {
-    // tüm ürünleri listele (herkes görebilir)
-    public function index()
+    // tüm ürünleri listele - arama ve filtreleme + pagination
+    public function index(Request $request)
     {
-        // kategori bilgisiyle birlikte getir
-        $products = Product::with('category')->where('is_active', true)->get();
+        $query = Product::with('category')->where('is_active', true);
 
-        return response()->json($products);
+        // isme göre arama: ?search=telefon
+        if ($request->has('search')) {
+            $query->where('name', 'like', '%' . $request->search . '%');
+        }
+
+        // kategoriye göre filtre: ?category_id=2
+        if ($request->has('category_id')) {
+            $query->where('category_id', $request->category_id);
+        }
+
+        // minimum fiyat filtresi: ?min_price=50
+        if ($request->has('min_price')) {
+            $query->where('price', '>=', $request->min_price);
+        }
+
+        // maksimum fiyat filtresi: ?max_price=500
+        if ($request->has('max_price')) {
+            $query->where('price', '<=', $request->max_price);
+        }
+
+        // sayfa başına 10 ürün
+        $products = $query->paginate(10);
+
+        return ProductResource::collection($products);
     }
 
     // tek ürün getir
@@ -26,21 +51,12 @@ class ProductController extends Controller
             return response()->json(['message' => 'Ürün bulunamadı.'], 404);
         }
 
-        return response()->json($product);
+        return new ProductResource($product);
     }
 
     // yeni ürün oluştur (sadece admin)
-    public function store(Request $request)
+    public function store(StoreProductRequest $request)
     {
-        $request->validate([
-            'category_id' => 'required|exists:categories,id',
-            'name'        => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'price'       => 'required|numeric|min:0',
-            'stock'       => 'required|integer|min:0',
-            'is_active'   => 'boolean',
-        ]);
-
         $product = Product::create([
             'category_id' => $request->category_id,
             'name'        => $request->name,
@@ -53,12 +69,12 @@ class ProductController extends Controller
 
         return response()->json([
             'message' => 'Ürün oluşturuldu.',
-            'product' => $product,
+            'product' => new ProductResource($product->load('category')),
         ], 201);
     }
 
     // ürün güncelle (sadece admin)
-    public function update(Request $request, $id)
+    public function update(UpdateProductRequest $request, $id)
     {
         $product = Product::find($id);
 
@@ -66,16 +82,6 @@ class ProductController extends Controller
             return response()->json(['message' => 'Ürün bulunamadı.'], 404);
         }
 
-        $request->validate([
-            'category_id' => 'sometimes|exists:categories,id',
-            'name'        => 'sometimes|string|max:255',
-            'description' => 'nullable|string',
-            'price'       => 'sometimes|numeric|min:0',
-            'stock'       => 'sometimes|integer|min:0',
-            'is_active'   => 'boolean',
-        ]);
-
-        // sadece gönderilen alanları güncelle
         if ($request->has('name')) {
             $product->name = $request->name;
             $product->slug = Str::slug($request->name) . '-' . time();
@@ -90,7 +96,7 @@ class ProductController extends Controller
 
         return response()->json([
             'message' => 'Ürün güncellendi.',
-            'product' => $product,
+            'product' => new ProductResource($product->load('category')),
         ]);
     }
 
