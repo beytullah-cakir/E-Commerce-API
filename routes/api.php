@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,15 +25,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/products',      [ProductController::class, 'index']);
     Route::get('/products/{id}', [ProductController::class, 'show']);
 
-    // sepet işlemleri (giriş yapan herkes)
-    Route::get('/cart',                    [CartController::class, 'index']);
-    Route::post('/cart/items',             [CartController::class, 'addItem']);
-    Route::put('/cart/items/{itemId}',     [CartController::class, 'updateItem']);
-    Route::delete('/cart/items/{itemId}',  [CartController::class, 'removeItem']);
-    Route::delete('/cart',                 [CartController::class, 'clearCart']);
+    // sepet işlemleri
+    Route::get('/cart',                   [CartController::class, 'index']);
+    Route::post('/cart/items',            [CartController::class, 'addItem']);
+    Route::put('/cart/items/{itemId}',    [CartController::class, 'updateItem']);
+    Route::delete('/cart/items/{itemId}', [CartController::class, 'removeItem']);
+    Route::delete('/cart',                [CartController::class, 'clearCart']);
+
+    // sipariş işlemleri
+    Route::get('/orders',          [OrderController::class, 'index']);
+    Route::get('/orders/{id}',     [OrderController::class, 'show']);
+    Route::post('/orders',         [OrderController::class, 'store']);
 
     // sadece adminlere açık işlemler
     Route::middleware('admin')->group(function () {
+
+        // sipariş durum güncelleme
+        Route::put('/orders/{id}/status', [OrderController::class, 'updateStatus']);
 
         // kategori yönetimi
         Route::post('/categories',        [CategoryController::class, 'store']);
